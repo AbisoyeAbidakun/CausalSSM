@@ -1,0 +1,114 @@
+# @package _global_
+# CSSPD hyperparameters — MIMIC-III Real (diastolic blood pressure)
+#
+# lambda_cpc=0.05 and warmup_epochs=120 are the values actually used for the
+# paper's reported MIMIC-III results (verified against the MLflow run
+# history: 6/7 finished CSSPD/mimic3_real runs logged these values; one
+# earlier run used 0.1/80 — an intermediate tuning step, superseded by the
+# grid search mentioned in the paper's Implementation Details section:
+# "loss weights were set to lambda_MS=3.5, lambda_CPC=0.05, and
+# lambda_LIM=0.1 which were selected by grid search on the MIMIC-III
+# validation set"). This file previously pinned the superseded 0.1/80
+# values; corrected here to match what was actually run.
+#
+# Encoder mirrors CSSD exactly — the best-performing pure-SSM config on
+# MIMIC-III.  No encoder changes are made so that any improvement over CSSD
+# is attributable purely to CPC + LIM.
+#
+# Key MIMIC-III adaptations vs cancer_sim config
+# ───────────────────────────────────────────────
+#   learning_rate : 0.0001  (vs 0.001 on cancer_sim)
+#     MIMIC-III is smaller (3,500 patients) and noisier; slow LR avoids
+#     over-fitting the factual encoder before CPC warmup completes.
+#
+#   lambda_cpc    : 0.05    (vs 0.3 on cancer_sim)
+#     CPC backpropagates into the encoder. On a small noisy dataset a weaker
+#     contrastive signal is safer; the encoder is already close to its
+#     optimum on factual loss at this LR — aggressive CPC pressure risks
+#     destabilising it.
+#
+#   lambda_ms     : 3.5     (same as cancer_sim; paper §6 Implementation Details)
+#     L_ms is encoder-isolated (br_last detached) so this only scales the
+#     decoder heads. Validated on the MIMIC-III validation set.
+#
+#   warmup_epochs : 120     (vs 60 on cancer_sim)
+#     Longer ramp on a noisier dataset — CPC enters at full weight only
+#     once the factual encoder has converged to a stable BR. With LR=0.0001
+#     convergence is slower so a longer warmup is appropriate.
+#
+#   max_epochs    : 300     (vs 200 on cancer_sim)
+#     Matches CT / CSSD baseline for a fair comparison.
+#
+#   batch_size    : 64      (vs 128 on cancer_sim)
+#     CT / CSSD validated setting for MIMIC-III.
+#
+#   dropout_rate  : 0.2     (vs 0.1 on cancer_sim)
+#     Matches CSSD / CT setting for MIMIC-III.
+#
+#   dec_dropout   : 0.2     (consistent with encoder dropout)
+#
+#   trt_enc_dim   : 24      (= br_size, matches CSSD)
+#     MIMIC-III has 2 binary treatments (vaso, vent); matching trt_enc_dim
+#     to br_size balances treatment context vs state in the decoder.
+#
+#   cpc_k_steps   : 5       (vs 3 on cancer_sim)
+#     MIMIC-III projection_horizon = 5, so CPC should explicitly cover
+#     the full prediction window BR_t → BR_{t+1..t+5}.
+#
+#   cpc_n_anchors : 8       (same as cancer_sim)
+#   lim_n_negs    : 8       (same as cancer_sim)
+
+dataset:
+  outcome_list:
+    - diastolic blood pressure
+
+model:
+  multi:
+    optimizer:
+      learning_rate: 0.0001
+    batch_size: 64
+
+    # ── Encoder (identical to SSTD-v1 — best MIMIC-III SSM config) ───────────
+    seq_hidden_units: 32
+    br_size: 24
+    fc_hidden_units: 48
+    dropout_rate: 0.2
+    num_layer: 2
+    max_grad_norm: 1.0
+
+    # ── SSM (identical to SSTD-v1) ───────────────────────────────────────────
+    ssm_d_state: 16
+    ssm_d_conv: 4
+    ssm_expand: 1
+
+    # ── Parallel decoder (mirrors SSTD-v1) ───────────────────────────────────
+    trt_enc_dim: 24
+    dec_hidden: 128
+    dec_dropout: 0.2
+
+    # ── CPC ──────────────────────────────────────────────────────────────────
+    cpc_k_steps: 5          # cover full projection horizon (τ = 1..5)
+    cpc_n_anchors: 8
+
+    # ── LIM ──────────────────────────────────────────────────────────────────
+    lim_n_negs: 8
+
+exp:
+  weights_ema: True
+  alpha: 0.01
+  beta: 0.99
+  balancing: domain_confusion
+  max_epochs: 300
+
+  # ── Parallel decoder loss (encoder-isolated, no warmup) ──────────────────
+  lambda_ms: 3.5
+  ms_step_discount: 1.0
+
+  # ── CPC (encoder-coupled, warmed up) ─────────────────────────────────────
+  lambda_cpc: 0.05          # grid-searched on MIMIC-III validation set (paper)
+
+  # ── LIM (discriminator only, x_local detached) ───────────────────────────
+  lambda_lim: 0.1
+
+  # ── Contrastive warmup ───────────────────────────────────────────────────
+  warmup_epochs: 120        # longer ramp: LR=0.0001 converges slowly

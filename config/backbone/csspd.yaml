@@ -1,0 +1,109 @@
+# @package _global_
+#
+# SSTCPD — SST + CPC + LIM + ParallelMultiStepDecoder (full model)
+#
+# Combines all three improvements over CT:
+#
+#   1. SSMMultiInputBlock encoder (from SST / sst.yaml)
+#        O(T) selective-scan temporal mixing + SCM-guided cross-stream gating.
+#
+#   2. ParallelMultiStepDecoder (from SSTD / sstd.yaml)
+#        τ independent heads; zero error accumulation; single inference pass.
+#        Training: λ_ms × L_ms (br_last detached → encoder-isolated).
+#
+#   3. CPC + LIM regularisation (from SSTCP / sstcp.yaml)
+#        CPC: BR_t predicts BR_{t+k} with treatment conditioning.
+#        LIM: maximises I(x_local_t ; BR_t) against domain-confusion erasure.
+#        Training: warmup × (λ_cpc × L_CPC + λ_lim × L_LIM).
+#
+# Key property: λ_ms is NOT warmed up because L_ms uses br_last.detach() —
+# the parallel decoder loss trains only the decoder heads and never flows
+# back through the encoder, so it cannot destabilise CPC/LIM learning.
+# CPC/LIM are warmed up linearly because they DO backprop into the encoder.
+#
+# Quick run example:
+#   python3 runnables/train_multi.py +backbone=sstcpd \
+#       "+backbone/sstcpd_hparams/cancer_sim_domain_conf='1'" \
+#       +dataset=cancer_sim exp.seed=10
+
+model:
+  name: CSSPD
+  multi:
+    _target_: src.models.csspd.CSSPD
+    max_seq_length: ${sum:${dataset.max_seq_length},${dataset.projection_horizon}}
+
+    # ── Core dimensions (same knobs as SST / CT) ─────────────────────────────
+    seq_hidden_units:
+    br_size:
+    fc_hidden_units:
+    dropout_rate:
+    num_layer: 2
+    max_grad_norm:
+    batch_size:
+
+    # ── SSM encoder (inherited from SST) ──────────────────────────────────────
+    ssm_d_state: 16
+    ssm_d_conv: 4
+    ssm_expand: 1
+
+    # ── ParallelMultiStepDecoder (inherited from SSTD) ────────────────────────
+    trt_enc_dim: 32
+    dec_hidden: 128
+    dec_dropout: 0.1
+
+    # ── CPC architecture ──────────────────────────────────────────────────────
+    cpc_k_steps: 3       # predict BR at t+1, t+2, t+3 from BR_t
+    cpc_n_anchors: 8     # random anchor timesteps sampled per batch
+
+    # ── LIM architecture ──────────────────────────────────────────────────────
+    lim_n_negs: 8        # within-patient time-shuffle negatives per anchor
+                         # (cross-patient negatives always use the full batch B)
+
+    # ── CT/EDCT parent-chain stubs ────────────────────────────────────────────
+    num_heads: 2
+    attn_dropout: False
+    disable_cross_attention: False
+    isolate_subnetwork: _
+    self_positional_encoding:
+      absolute: False
+      trainable: True
+      max_relative_position: 15
+
+    # ── Augmentation ─────────────────────────────────────────────────────────
+    augment_with_masked_vitals: True
+
+    # ── Optimiser ────────────────────────────────────────────────────────────
+    optimizer:
+      optimizer_cls: adam
+      learning_rate:
+      weight_decay: 0.0
+      lr_scheduler: False
+
+    tune_hparams: False
+    tune_range: 50
+    hparams_grid:
+    resources_per_trial:
+
+exp:
+  weights_ema: True
+  balancing: domain_confusion
+  alpha: 0.01
+  beta: 0.99
+
+  # ── Parallel decoder loss ─────────────────────────────────────────────────
+  # Same as SSTD: safe to keep at 3.5 because br_last is detached.
+  # The decoder gradient never reaches the encoder, so CPC/LIM are unaffected.
+  lambda_ms: 3.5
+  ms_step_discount: 1.0
+
+  # ── CPC loss ──────────────────────────────────────────────────────────────
+  # 0.3 is the SSTCP-calibrated value.  If factual RMSE regresses here,
+  # suspect interaction with lambda_ms — try reducing to 0.1 first.
+  lambda_cpc: 0.3
+
+  # ── LIM loss ──────────────────────────────────────────────────────────────
+  lambda_lim: 0.1
+
+  # ── Contrastive warmup ─────────────────────────────────────────────────────
+  # 60 epochs = 30% of 200-epoch run.  L_ms is NOT warmed up (see above).
+  warmup_epochs: 60

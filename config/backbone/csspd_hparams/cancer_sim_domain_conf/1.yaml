@@ -1,0 +1,80 @@
+# @package _global_
+# SSTCPD hyperparameters — cancer_sim γ=1 (medium confounding), domain_confusion
+#
+# Encoder dimensions are identical across SST / SSTD / SSTCP / SSTCPD to isolate
+# each component's contribution from raw capacity effects:
+#   seq_hidden_units: 32
+#   br_size:          24
+#   num_layer:         2
+#
+# Comparison table (expected, cancer_sim γ=1, seed=10)
+# ──────────────────────────────────────────────────────
+#   Model   | Factual RMSE | 2-step | 6-step | Notes
+#   ────────────────────────────────────────────────────
+#   SST     |   0.5941     | 0.765  | 0.978  | baseline
+#   SSTD    |   0.5705     | 0.342  | 0.761  | parallel decoder
+#   SSTCPD  |   ~0.56      | ~0.30  | ~0.70  | decoder + CPC/LIM (target)
+#
+# SSTCPD expected improvements over SSTD
+# ────────────────────────────────────────
+#   CPC forces BR to capture richer temporal dynamics → decoder conditioned on
+#   a more informative representation → better predictions at all horizons.
+#   LIM preserves covariate content that domain-confusion erases → factual
+#   RMSE and short-horizon predictions should benefit most.
+#   Improvement is expected to be moderate (5–10% over SSTD) since SSTD's
+#   structural decoder fix already dominates the n-step improvement.
+#
+# Tuning notes
+# ────────────
+#   If factual RMSE regresses vs SSTD (0.5705):
+#     • Reduce lambda_cpc: 0.3 → 0.1  (CPC is the likely culprit; it backprops
+#       through the encoder, unlike lambda_ms which is encoder-isolated)
+#     • Keep lambda_ms at 3.5 — it's encoder-isolated and already validated
+#   If n-step RMSE does not improve vs SSTD:
+#     • Increase lambda_cpc: 0.3 → 0.5  (stronger predictive signal)
+#     • Try cpc_k_steps: 3 → 5  (explicitly cover the full projection horizon)
+#   If training is slow to converge:
+#     • Reduce warmup_epochs: 60 → 30  (earlier contrastive pressure)
+
+dataset:
+  coeff: 1.0
+
+model:
+  multi:
+    optimizer:
+      learning_rate: 0.001
+    batch_size: 128
+
+    # ── Encoder (identical to SST / SSTD / SSTCP baseline) ───────────────────
+    seq_hidden_units: 32
+    br_size: 24
+    fc_hidden_units: 64
+    dropout_rate: 0.1
+    num_layer: 2
+    max_grad_norm: 1.0
+
+    # ── Parallel decoder (identical to SSTD baseline) ─────────────────────────
+    trt_enc_dim: 32
+    dec_hidden: 128
+    dec_dropout: 0.1
+
+    # ── CPC / LIM ─────────────────────────────────────────────────────────────
+    cpc_k_steps: 3
+    cpc_n_anchors: 8
+    lim_n_negs: 8
+
+exp:
+  weights_ema: True
+  alpha: 0.01
+  beta: 0.99
+  balancing: domain_confusion
+  max_epochs: 200
+
+  # ── Parallel decoder loss (encoder-isolated, no warmup needed) ───────────
+  lambda_ms: 3.5
+  ms_step_discount: 1.0
+
+  # ── CPC / LIM (encoder-coupled, warmed up) ───────────────────────────────
+  lambda_cpc: 0.3
+  lambda_lim: 0.1
+  warmup_epochs: 60

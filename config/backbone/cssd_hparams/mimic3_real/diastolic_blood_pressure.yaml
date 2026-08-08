@@ -1,0 +1,79 @@
+# @package _global_
+# SSTD hyperparameters — MIMIC-III Real (diastolic blood pressure)
+#
+# Dataset characteristics
+# ───────────────────────
+#   max_seq_length: 60        T is moderate (≤ 60 hourly steps)
+#   projection_horizon: 5     τ = 6-step ahead prediction
+#   treatments: 2 (vaso, vent) — multilabel binary
+#   vitals: 25 features        → dim_vitals is non-zero (vitals stream active)
+#   static: 3 features         → gender, ethnicity, age
+#   n_patients: ~5000          → small dataset, regularise aggressively
+#
+# Encoder sizing rationale
+# ────────────────────────
+#   CT mimic3_real: seq_hidden_units=24, br_size=22, num_layer=2, LR=0.0001
+#   CM mimic3_real: seq_hidden_units=48, br_size=32, num_layer=2, LR=0.001
+#   SSTD (this):    seq_hidden_units=32, br_size=24, num_layer=2, LR=0.0001
+#
+#   • Keeps SSM width (32) above CT (24) — SSM can exploit more capacity at O(T)
+#   • Lower LR than cancer_sim (0.001→0.0001): MIMIC-III is smaller and noisier,
+#     slower convergence avoids overfitting the encoder to factual noise
+#   • dropout_rate: 0.2 (CT default for MIMIC) — larger than cancer_sim (0.1)
+#   • batch_size: 64  (CT/MIMIC default; 128 can overfit with ~3500 training pts)
+#
+# Decoder sizing rationale
+# ────────────────────────
+#   trt_enc_dim: 24   (= br_size; good initialisation for complex multi-treatment)
+#   dec_hidden:  128  (same as cancer_sim; τ=6 is the key horizon)
+#   lambda_ms:   2.0  (lower than cancer_sim 3.5 — smaller dataset, more conservative)
+#
+# SSM parameters
+# ──────────────
+#   ssm_d_state: 16   T≤60 so N=16 is sufficient for temporal memory
+#   ssm_d_conv: 4     standard Mamba default
+#   ssm_expand: 1     keeps params comparable to CT baseline
+#
+# If factual RMSE degrades beyond CT:
+#   Try lambda_ms: 1.0, dropout_rate: 0.3, or reduce seq_hidden_units to 24
+# If n-step RMSE plateaus:
+#   Try trt_enc_dim: 32, dec_hidden: 192, or ssm_d_state: 32
+
+dataset:
+  outcome_list:
+    - diastolic blood pressure
+
+model:
+  multi:
+    optimizer:
+      learning_rate: 0.0001
+    batch_size: 64
+
+    # ── Encoder ───────────────────────────────────────────────────────────────
+    seq_hidden_units: 32
+    br_size: 24
+    fc_hidden_units: 48        # = 1.5 × seq_hidden_units (conservative for small data)
+    dropout_rate: 0.2
+    num_layer: 2
+    max_grad_norm: 1.0
+
+    # ── SSM hyperparameters ──────────────────────────────────────────────────
+    ssm_d_state: 16
+    ssm_d_conv: 4
+    ssm_expand: 1
+
+    # ── Parallel decoder ─────────────────────────────────────────────────────
+    trt_enc_dim: 24            # = br_size; treatment context matches state size
+    dec_hidden: 128
+    dec_dropout: 0.2           # match encoder dropout for consistency
+
+exp:
+  weights_ema: True
+  alpha: 0.01
+  beta: 0.99
+  balancing: domain_confusion
+  max_epochs: 300              # same as CT baseline for MIMIC-III
+
+  # ── Parallel decoder loss ─────────────────────────────────────────────────
+  lambda_ms: 2.0               # conservative: small dataset + higher noise
+  ms_step_discount: 1.0        # uniform horizon weighting

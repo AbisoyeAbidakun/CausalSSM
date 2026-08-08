@@ -1,0 +1,33 @@
+# @package _global_
+# SSTD hparams — cancer_sim γ=2 (medium-high confounding)
+# Higher lr (0.01) and tighter BR (16) matches CT γ=2 relative sizing:
+#   CT: seq=16 br=8 → SSM: seq=32 br=16  (halved BR to force domain confusion)
+dataset:
+  coeff: 2.0
+
+model:
+  multi:
+    optimizer:
+      learning_rate: 0.01
+    batch_size: 128
+    seq_hidden_units: 32
+    br_size: 16
+    fc_hidden_units: 64
+    dropout_rate: 0.1
+    num_layer: 2
+    max_grad_norm: 1.0
+    ssm_d_state: 16
+    ssm_d_conv: 4
+    ssm_expand: 1
+    trt_enc_dim: 32
+    dec_hidden: 128
+    dec_dropout: 0.1
+
+exp:
+  weights_ema: True
+  alpha: 0.01
+  beta: 0.99
+  balancing: domain_confusion
+  max_epochs: 200
+  lambda_ms: 3.5
+  ms_step_discount: 1.0

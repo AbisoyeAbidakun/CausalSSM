@@ -1,0 +1,79 @@
+# @package _global_
+# SSTDCC hyperparameters — MIMIC-III Real (diastolic blood pressure)
+#
+# Starting point: SSTD-v1 settings (seq=32, br=24, num_layer=2, lr=0.0001)
+# Change: SSMMultiInputBlock → CausallyConstrainedHybridBlock
+#         Treatment stream: self-attention (2 heads) instead of CausalMambaLayer
+#         Outcome/vitals: CausalMambaLayer unchanged
+#
+# Rationale for num_layer=2 (not 1 like SSTDH)
+# ─────────────────────────────────────────────
+# CCH blocks are not compound — each CCH block is a single layer (not a
+# 2-SSM + 1-Attn compound block like HybridSSMAttentionMultiInputBlock).
+# num_layer=2 gives the same depth as SSTD-v1: 2 treatment attention layers,
+# 2 outcome SSM layers — architecturally comparable to the SSTD baseline.
+#
+# Treatment attention sizing
+# ──────────────────────────
+# cch_attn_heads=2: 2 heads × (32/2=16 head_size) = 32 output dim = d_model ✓
+# T=59: treatment self-attention costs 59² = 3,481 ops per layer — trivial.
+# Since MIMIC-III has 2 binary treatments (vasopressor, ventilation), the
+# treatment stream has low intrinsic dimensionality and 2 heads is sufficient.
+#
+# Expected behaviour vs SSTD-v1
+# ──────────────────────────────
+#   Factual RMSE : should stay ≤ SSTD-v1 — full treatment history in BR
+#                  makes domain confusion more effective
+#   2-step RMSE  : expect improvement — treatment attention captures local
+#                  treatment dynamics more precisely than SSM
+#   3–6-step     : expect the largest improvement — full A_{1:t} history
+#                  directly available to the decoder through BR_t
+#
+# If factual RMSE regresses:
+#   → Try cch_attn_dropout: 0.1 (regularise treatment attention)
+#   → Try num_layer: 1 (shallower; less attention pressure on BR)
+# If n-step RMSE does not improve vs SSTD-v1:
+#   → Try cch_attn_heads: 4 (more attention capacity)
+#   → Try ssm_d_state: 32 (richer outcome/vitals state for longer horizons)
+
+dataset:
+  outcome_list:
+    - diastolic blood pressure
+
+model:
+  multi:
+    optimizer:
+      learning_rate: 0.0001
+    batch_size: 64
+
+    # ── Encoder ───────────────────────────────────────────────────────────────
+    seq_hidden_units: 32
+    br_size: 24
+    fc_hidden_units: 48
+    dropout_rate: 0.2
+    num_layer: 2                   # same depth as SSTD-v1
+    max_grad_norm: 1.0
+
+    # ── SSM (outcome/vitals) ──────────────────────────────────────────────────
+    ssm_d_state: 16
+    ssm_d_conv: 4
+    ssm_expand: 1
+
+    # ── Treatment attention ───────────────────────────────────────────────────
+    cch_attn_heads: 2
+    cch_attn_dropout: 0.0
+
+    # ── Parallel decoder ─────────────────────────────────────────────────────
+    trt_enc_dim: 24               # = br_size
+    dec_hidden: 128
+    dec_dropout: 0.2
+
+exp:
+  weights_ema: True
+  alpha: 0.01
+  beta: 0.99
+  balancing: domain_confusion
+  max_epochs: 300
+
+  lambda_ms: 2.0                  # conservative (same as SSTD-v1 / SSTCPD-v1)
+  ms_step_discount: 1.0

@@ -1,0 +1,32 @@
+# @package _global_
+# SSTD hparams — cancer_sim γ=4 (strongest confounding)
+# Higher lr + smaller batch: domain confusion needs faster alpha updates.
+dataset:
+  coeff: 4.0
+
+model:
+  multi:
+    optimizer:
+      learning_rate: 0.01
+    batch_size: 64
+    seq_hidden_units: 32
+    br_size: 24
+    fc_hidden_units: 64
+    dropout_rate: 0.1
+    num_layer: 2
+    max_grad_norm: 1.0
+    ssm_d_state: 16
+    ssm_d_conv: 4
+    ssm_expand: 1
+    trt_enc_dim: 32
+    dec_hidden: 128
+    dec_dropout: 0.1
+
+exp:
+  weights_ema: True
+  alpha: 0.01
+  beta: 0.99
+  balancing: domain_confusion
+  max_epochs: 200
+  lambda_ms: 3.5
+  ms_step_discount: 1.0

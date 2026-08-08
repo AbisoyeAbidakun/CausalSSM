@@ -1,0 +1,92 @@
+# @package _global_
+# SSTCPDCC hyperparameters — MIMIC-III Real (diastolic blood pressure)
+#
+# Starting point: SSTCPD-v2 settings (best SSTCPD config)
+# Change: SSMMultiInputBlock → CausallyConstrainedHybridBlock
+#         Treatment: self-attention; Outcome/vitals: SSM (unchanged)
+#
+# CPC settings carry forward from SSTCPD-v2
+# ─────────────────────────────────────────
+# lambda_cpc=0.05 (halved from v1): reduces mid-range n-step regression.
+# With the CCH encoder guaranteeing full treatment history in BR, CPC's
+# role shifts from "fixing encoder representation gaps" to "reinforcing
+# causally-predictive dynamics already captured by the attention". This
+# means CPC can be kept small without sacrificing long-horizon gains.
+#
+# warmup_epochs=120: same as SSTCPD-v2. The factual encoder with treatment
+# attention may converge slightly faster (richer gradients from attention),
+# but 120 epochs provides safe margin.
+#
+# Expected behaviour vs SSTCPD-v2
+# ─────────────────────────────────
+# The CCH encoder should address the root cause of SSTCPD-v2's mid-range
+# (3-5 step) regression vs SSTD-v1: SSM treatment compression. With full
+# treatment history available, the parallel decoder should have access to
+# richer causal context at every split point.
+#
+#   Factual RMSE : should stay ≤ SSTCPD-v2
+#   2-step RMSE  : expect ≤ SSTD-v1 (8.767) — attention helps near horizons
+#   3–5-step     : expect recovery toward or below SSTD-v1 levels
+#   6-step       : expect ≤ SSTCPD-v2 (10.125), likely below
+#
+# If factual RMSE increases:
+#   → Try cch_attn_dropout: 0.1, or lambda_ms: 1.5
+# If mid-range does not recover:
+#   → Try lambda_cpc: 0.03 (further reduce CPC pressure)
+#   → Try cch_attn_heads: 4
+
+dataset:
+  outcome_list:
+    - diastolic blood pressure
+
+model:
+  multi:
+    optimizer:
+      learning_rate: 0.0001
+    batch_size: 64
+
+    # ── Encoder ───────────────────────────────────────────────────────────────
+    seq_hidden_units: 32
+    br_size: 24
+    fc_hidden_units: 48
+    dropout_rate: 0.2
+    num_layer: 2
+    max_grad_norm: 1.0
+
+    # ── SSM (outcome/vitals) ──────────────────────────────────────────────────
+    ssm_d_state: 16
+    ssm_d_conv: 4
+    ssm_expand: 1
+
+    # ── Treatment attention ───────────────────────────────────────────────────
+    cch_attn_heads: 2
+    cch_attn_dropout: 0.0
+
+    # ── Parallel decoder ─────────────────────────────────────────────────────
+    trt_enc_dim: 24
+    dec_hidden: 128
+    dec_dropout: 0.2
+
+    # ── CPC ───────────────────────────────────────────────────────────────────
+    cpc_k_steps: 5                # cover full τ horizon
+    cpc_n_anchors: 8
+
+    # ── LIM ───────────────────────────────────────────────────────────────────
+    lim_n_negs: 8
+
+exp:
+  weights_ema: True
+  alpha: 0.01
+  beta: 0.99
+  balancing: domain_confusion
+  max_epochs: 300
+
+  lambda_ms: 2.0
+  ms_step_discount: 1.0
+
+  # Conservative CPC: CCH already encodes full treatment history,
+  # so CPC reinforces rather than compensates.
+  lambda_cpc: 0.05
+
+  lambda_lim: 0.1
+  warmup_epochs: 120

@@ -1,0 +1,28 @@
+# Byte-compiled / cache
+__pycache__/
+*.py[cod]
+*.egg-info/
+
+# Environments
+venv/
+.venv/
+env/
+
+# OS
+.DS_Store
+
+# Editor / tooling
+.claude/
+.idea/
+.vscode/
+.pytest_cache/
+
+# Experiment artifacts
+checkpoints/*.ckpt
+mlruns/
+outputs/
+
+# Datasets — large / restricted-access, fetched separately (see README)
+data/processed/*.h5
+data/processed/*.csv
+data/processed/mimic3_real/

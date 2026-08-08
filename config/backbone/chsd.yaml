@@ -1,0 +1,90 @@
+# @package _global_
+#
+# SSTDCC — Causally-Constrained Hybrid encoder + Direct Parallel Decoder
+#
+# The encoder assigns temporal mixing operators by causal role:
+#   Treatment stream  →  causal self-attention  O(T²)   (backdoor-motivated)
+#   Outcome stream    →  CausalMambaLayer       O(T)    (sequential dynamics)
+#   Vitals stream     →  CausalMambaLayer       O(T)    (sequential dynamics)
+#   Cross-stream      →  CausalGatedMixer       O(T)    (SCM-guided, unchanged)
+#
+# Contrast with SSTDH (Jamba/Griffin):
+#   SSTDH interleaves attention uniformly — no causal motivation.
+#   SSTDCC applies attention ONLY to the treatment stream — theoretically
+#   required by the backdoor adjustment criterion for deconfounding.
+#   This is a new architectural block, not an application of existing ones.
+#
+# num_layer=2 (same depth as SSTD baseline)
+#   Each CCH block = 1 treatment attention + 1 outcome SSM + (1 vitals SSM)
+#   + CausalGatedMixer + FFN × streams.
+#   With num_layer=2: 2 treatment attention layers, 2 outcome SSM layers —
+#   the same SSM depth as SSTD, plus treatment attention throughout.
+#
+# Quick run example:
+#   python3 runnables/train_multi.py +backbone=sstdcc \
+#       +backbone/sstdcc_hparams/mimic3_real=diastolic_blood_pressure \
+#       +dataset=mimic3_real exp.seed=10 exp.logging=True
+
+model:
+  name: CHSD
+  multi:
+    _target_: src.models.chsd.CHSD
+    max_seq_length: ${sum:${dataset.max_seq_length},${dataset.projection_horizon}}
+
+    # ── Core dimensions ───────────────────────────────────────────────────────
+    seq_hidden_units:
+    br_size:
+    fc_hidden_units:
+    dropout_rate:
+    num_layer: 2                   # 2 CCH blocks, matching SSTD's depth
+    max_grad_norm:
+    batch_size:
+
+    # ── SSM hyperparameters (outcome/vitals streams) ──────────────────────────
+    ssm_d_state: 16
+    ssm_d_conv: 4
+    ssm_expand: 1
+
+    # ── Treatment attention hyperparameters ───────────────────────────────────
+    cch_attn_heads: 2              # 2 heads; head_size = d_model / 2
+                                   # with d_model=32: head_size=16 ✓
+    cch_attn_dropout: 0.0          # CT default; no dropout on attention weights
+
+    # ── ParallelMultiStepDecoder ──────────────────────────────────────────────
+    trt_enc_dim: 32
+    dec_hidden: 128
+    dec_dropout: 0.1
+
+    # ── CT/EDCT parent-chain stubs ────────────────────────────────────────────
+    num_heads: 2
+    attn_dropout: False
+    disable_cross_attention: False
+    isolate_subnetwork: _
+    self_positional_encoding:
+      absolute: False
+      trainable: True
+      max_relative_position: 15
+
+    # ── Augmentation ─────────────────────────────────────────────────────────
+    augment_with_masked_vitals: True
+
+    # ── Optimiser ────────────────────────────────────────────────────────────
+    optimizer:
+      optimizer_cls: adam
+      learning_rate:
+      weight_decay: 0.0
+      lr_scheduler: False
+
+    tune_hparams: False
+    tune_range: 50
+    hparams_grid:
+    resources_per_trial:
+
+exp:
+  weights_ema: True
+  balancing: domain_confusion
+  alpha: 0.01
+  beta: 0.99
+
+  lambda_ms: 3.5
+  ms_step_discount: 1.0

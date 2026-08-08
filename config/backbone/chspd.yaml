@@ -1,0 +1,90 @@
+# @package _global_
+#
+# SSTCPDCC — Causally-Constrained Hybrid + CPC + LIM + Parallel Decoder
+#
+# Full model: CCH encoder + all three SSTCPD regularisation components.
+#
+# Key theoretical coherence
+# ──────────────────────────
+# The CCH encoder guarantees full treatment history encoding (backdoor
+# criterion). CPC and LIM then operate on top of a representation that
+# already satisfies sequential ignorability — they refine the dynamics
+# and preserve local information rather than having to compensate for
+# representation gaps caused by SSM compression.
+#
+# Quick run example:
+#   python3 runnables/train_multi.py +backbone=sstcpdcc \
+#       +backbone/sstcpdcc_hparams/mimic3_real=diastolic_blood_pressure \
+#       +dataset=mimic3_real exp.seed=10 exp.logging=True
+
+model:
+  name: CHSPD
+  multi:
+    _target_: src.models.chspd.CHSPD
+    max_seq_length: ${sum:${dataset.max_seq_length},${dataset.projection_horizon}}
+
+    # ── Core dimensions ───────────────────────────────────────────────────────
+    seq_hidden_units:
+    br_size:
+    fc_hidden_units:
+    dropout_rate:
+    num_layer: 2
+    max_grad_norm:
+    batch_size:
+
+    # ── SSM (outcome/vitals) ──────────────────────────────────────────────────
+    ssm_d_state: 16
+    ssm_d_conv: 4
+    ssm_expand: 1
+
+    # ── Treatment attention ───────────────────────────────────────────────────
+    cch_attn_heads: 2
+    cch_attn_dropout: 0.0
+
+    # ── ParallelMultiStepDecoder ──────────────────────────────────────────────
+    trt_enc_dim: 32
+    dec_hidden: 128
+    dec_dropout: 0.1
+
+    # ── CPC ───────────────────────────────────────────────────────────────────
+    cpc_k_steps: 3
+    cpc_n_anchors: 8
+
+    # ── LIM ───────────────────────────────────────────────────────────────────
+    lim_n_negs: 8
+
+    # ── CT/EDCT parent-chain stubs ────────────────────────────────────────────
+    num_heads: 2
+    attn_dropout: False
+    disable_cross_attention: False
+    isolate_subnetwork: _
+    self_positional_encoding:
+      absolute: False
+      trainable: True
+      max_relative_position: 15
+
+    augment_with_masked_vitals: True
+
+    optimizer:
+      optimizer_cls: adam
+      learning_rate:
+      weight_decay: 0.0
+      lr_scheduler: False
+
+    tune_hparams: False
+    tune_range: 50
+    hparams_grid:
+    resources_per_trial:
+
+exp:
+  weights_ema: True
+  balancing: domain_confusion
+  alpha: 0.01
+  beta: 0.99
+
+  lambda_ms: 3.5
+  ms_step_discount: 1.0
+
+  lambda_cpc: 0.3
+  lambda_lim: 0.1
+  warmup_epochs: 60

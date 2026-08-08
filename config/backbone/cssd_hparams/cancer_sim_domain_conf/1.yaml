@@ -1,0 +1,62 @@
+# @package _global_
+# SSTD hyperparameters — cancer_sim γ=1 (medium confounding), domain_confusion
+#
+# Encoder dimensions are identical to SST (sst_hparams/cancer_sim_domain_conf/1.yaml)
+# to isolate the decoder contribution from capacity effects:
+#   seq_hidden_units: 32  (SST baseline)
+#   br_size:          24  (SST baseline)
+#   num_layer:         2  (SST baseline)
+#
+# The only structural additions are the decoder knobs.
+#
+# Comparison protocol
+# ───────────────────
+#   SST  (sst_hparams/1): encoder only, autoregressive rollout at inference
+#   SSTD (this file)    : same encoder + ParallelMultiStepDecoder
+#
+# Expected improvements:
+#   • 2-step:  0.765 → ~0.70–0.72  (decoder has direct BR + treatment context)
+#   • 6-step:  0.978 → ~0.82–0.88  (no accumulated prediction errors)
+#   • Inference time: ~35 min → <1 min (single pass replaces 6-pass rollout)
+#
+# If factual RMSE (orig) regresses beyond 0.62:
+#   Try lambda_ms: 3.5 → 2.0  (reduce decoder gradient pressure on encoder)
+#   br_last is detached so this should be rare.
+#
+# If n-step RMSE is still poor after 200 epochs:
+#   Try trt_enc_dim: 32 → 48  (match br_size for fuller treatment representation)
+#   Try dec_hidden: 128 → 192 (wider trunk for harder-to-predict horizons)
+
+dataset:
+  coeff: 1.0
+
+model:
+  multi:
+    optimizer:
+      learning_rate: 0.001
+    batch_size: 128
+
+    # ── Encoder (identical to SST baseline for fair comparison) ──────────────
+    seq_hidden_units: 32
+    br_size: 24
+    fc_hidden_units: 64
+    dropout_rate: 0.1
+    num_layer: 2
+    max_grad_norm: 1.0
+
+    # ── Decoder ──────────────────────────────────────────────────────────────
+    trt_enc_dim: 32      # treatment embedding width; equals br_size is a good
+                         # starting point (equal treatment-vs-state expressiveness)
+    dec_hidden: 128      # trunk hidden; 128 = ~5× br_size; safe ratio
+    dec_dropout: 0.1
+
+exp:
+  weights_ema: True
+  alpha: 0.01
+  beta: 0.99
+  balancing: domain_confusion
+  max_epochs: 200         # same as SST baseline; parallel decoder converges fast
+
+  # ── Parallel decoder loss ─────────────────────────────────────────────────
+  lambda_ms: 3.5          # encoder is protected (br_last detached), so 3.5 is safe
+  ms_step_discount: 1.0   # uniform horizon weighting
