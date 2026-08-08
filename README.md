@@ -22,6 +22,26 @@ reported result, including the baselines.
 
 ---
 
+## Architecture
+
+<p align="center">
+  <img src="assets/architecture.png" alt="CSSPD architecture diagram" width="100%">
+</p>
+
+**CSSPD architecture.** Three streams ($A_t$, $Y_t$, $X_t/S$) are embedded and passed
+through $L$ independent Mamba SSM layers ($O(T)$) to produce $\tilde{a}_t,\tilde{y}_t,\tilde{x}_t$.
+A SCM-gated `CausalGatedMixer` fuses them into the balancing representation $\mathrm{BR}_t$.
+*Domain confusion* (dashed red) suppresses $I(\mathrm{BR}_t;A_t)$ via gradient reversal but
+inadvertently suppresses $I(\mathrm{BR}_t;H_{t+k})$ and $I(\mathrm{BR}_t;X_t)$. *CPC* (solid
+green) restores temporal MI $I(\mathrm{BR}_t;H_{t+k})$; *LIM* (solid orange) restores
+covariate MI $I(\mathrm{BR}_t;X_t)$. The parallel decoder receives two distinct inputs: a
+stop-gradient copy $\mathrm{BR}_t^\perp$ (dashed blue) encoding patient state, and
+$\mathrm{TrtEnc}(\bar{a}_{t+1:t+\tau})$ (solid black) encoding the counterfactual
+intervention; together they produce all $\tau_{\max}$ predictions simultaneously. CSSD
+omits the CPC and LIM heads.
+
+---
+
 ## Models
 
 ### Proposed (this paper)
@@ -33,8 +53,8 @@ reported result, including the baselines.
 | **CHSD**  | CSSD with the treatment stream replaced by causal self-attention (`CausallyConstrainedHybridBlock`) — architectural ablation. |
 | **CHSPD** | CHSD + CPC + LIM — combined architectural + objective-level ablation. |
 
-Reported results (Cancer Simulation, MIMIC-III, ablations) are in `REPLICATION.md`,
-quoted directly from the paper.
+Reported results (Cancer Simulation, MIMIC-III, ablations) are quoted directly from
+the paper below; see `REPLICATION.md` for the exact commands used to produce them.
 
 ### Baselines evaluated in the paper
 
@@ -50,6 +70,43 @@ quoted directly from the paper.
 `EDCT` (encoder-decoder attention variant of CT) and `MSM` (linear IPTW marginal
 structural model, Robins et al. 2000) are runnable but are not among the four
 baselines the paper's Results section reports against.
+
+---
+
+## Results
+
+### Cancer Simulation
+
+Mean normalised RMSE averaged over τ = 1–6 steps and 5 random seeds (lower is
+better; **bold** = best per column). ¶ Baseline results are reproduced. ‡ CHSD and
+CHSPD exhibit high variance at γ≥2.
+
+| Model | γ=0 | γ=1 | γ=2 | γ=3 | γ=4 | Avg |
+|---|---|---|---|---|---|---|
+| RMSN (Lim et al. 2018)¶ | 0.758±0.051 | 0.807±0.041 | 0.791±0.111 | 0.954±0.137 | 1.142±0.266 | 0.890 |
+| CRN (Bica et al. 2020)¶ | 0.711±0.059 | 0.721±0.037 | 0.781±0.086 | 1.624±0.893 | 1.253±0.250 | 1.018 |
+| G-Net (Li et al. 2021)¶ | 1.039±0.087 | 1.024±0.093 | 1.321±0.107 | 1.154±0.183 | 1.293±0.232 | 1.166 |
+| CT (Melnychuk et al. 2022a) | 0.720±0.059 | 0.758±0.042 | 0.829±0.060 | 0.961±0.084 | 1.434±0.440 | 0.940 |
+| **CSSD (ours)** | **0.422**±0.078 | **0.500**±0.053 | 0.915±0.082 | **0.878**±0.159 | **1.393**±0.554 | 0.821 |
+| **CSSPD (ours)** | **0.454**±0.227 | **0.479**±0.181 | **0.572**±0.186 | **0.712**±0.333 | **0.838**±0.269 | **0.611** |
+| **CHSD (ours)** | **0.412**±0.052 | **0.477**±0.048 | 0.930±0.334‡ | 0.830±0.127 | 1.503±0.423‡ | 0.830 |
+| **CHSPD (ours)** | 0.401±0.068 | 0.465±0.077 | 0.839±0.306 | 0.760±0.169 | 2.204±0.876‡ | 0.934 |
+
+CSSPD reduces average RMSE by 35% over CT on Cancer Simulation.
+
+### MIMIC-III Real
+
+<p align="center">
+  <img src="assets/mimic3_rmse_vs_horizon.png" alt="Per-step RMSE vs. prediction horizon on MIMIC-III Real" width="70%">
+</p>
+
+**Per-step RMSE vs. prediction horizon on MIMIC-III Real (τ=1–6).** Mean over 5
+seeds. At τ=1, CT (4.59±0.06) and CSSPD (4.68±0.06) nearly overlap, with CT
+marginally lower; both are off the visible scale (plot shows τ≥2). From τ=2 onward
+CSSPD (bold green) is the only model that consistently outperforms CT (dashed
+navy); the gap grows monotonically from 0.03 at τ=2 to 0.07 at τ=6, consistent with
+CPC's compounding benefit. CSSD and CHSD (orange/teal) lack CPC and fall behind CT
+at τ≥3.
 
 ---
 

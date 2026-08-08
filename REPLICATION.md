@@ -84,6 +84,21 @@ Protocol: 5 seeds (`10, 101, 1010, 10101, 101010`), gamma in `{0,1,2,3,4}`, mean
 reported (matches Melnychuk et al. 2022's protocol, per the paper's Limitations
 section).
 
+**Reported results** (Table 1 of the paper). Mean normalised RMSE averaged over
+τ = 1–6 steps and 5 seeds (lower is better; **bold** = best per column). ¶ Baseline
+results are reproduced. ‡ CHSD and CHSPD exhibit high variance at γ≥2.
+
+| Model | γ=0 | γ=1 | γ=2 | γ=3 | γ=4 | Avg |
+|---|---|---|---|---|---|---|
+| RMSN (Lim et al. 2018)¶ | 0.758±0.051 | 0.807±0.041 | 0.791±0.111 | 0.954±0.137 | 1.142±0.266 | 0.890 |
+| CRN (Bica et al. 2020)¶ | 0.711±0.059 | 0.721±0.037 | 0.781±0.086 | 1.624±0.893 | 1.253±0.250 | 1.018 |
+| G-Net (Li et al. 2021)¶ | 1.039±0.087 | 1.024±0.093 | 1.321±0.107 | 1.154±0.183 | 1.293±0.232 | 1.166 |
+| CT (Melnychuk et al. 2022a) | 0.720±0.059 | 0.758±0.042 | 0.829±0.060 | 0.961±0.084 | 1.434±0.440 | 0.940 |
+| **CSSD (ours)** | **0.422**±0.078 | **0.500**±0.053 | 0.915±0.082 | **0.878**±0.159 | **1.393**±0.554 | 0.821 |
+| **CSSPD (ours)** | **0.454**±0.227 | **0.479**±0.181 | **0.572**±0.186 | **0.712**±0.333 | **0.838**±0.269 | **0.611** |
+| **CHSD (ours)** | **0.412**±0.052 | **0.477**±0.048 | 0.930±0.334‡ | 0.830±0.127 | 1.503±0.423‡ | 0.830 |
+| **CHSPD (ours)** | 0.401±0.068 | 0.465±0.077 | 0.839±0.306 | 0.760±0.169 | 2.204±0.876‡ | 0.934 |
+
 ```bash
 SEEDS=(10 101 1010 10101 101010)
 GAMMAS=(0 1 2 3 4)
@@ -103,6 +118,12 @@ done
 ---
 
 ## 4. Proposed Models — MIMIC-III Real
+
+**Reported results** (Figure 2 of the paper; mean over 5 seeds, τ=1–6). At τ=1, CT
+(4.59±0.06) and CSSPD (4.68±0.06) nearly overlap, with CT marginally lower. From
+τ=2 onward CSSPD is the only model that consistently outperforms CT, with the gap
+growing monotonically from 0.03 at τ=2 to 0.07 at τ=6. CSSD and CHSD lack CPC and
+fall behind CT at τ≥3. See the plot in `README.md` § Results.
 
 ```bash
 SEEDS=(10 101 1010 10101 101010)
